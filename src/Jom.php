@@ -1,5 +1,5 @@
 <?php
-namespace Jnilla\Jom;
+namespace Jnilla;
 
 defined('_JEXEC') or die();
 
@@ -525,12 +525,12 @@ class Jom
 	public static function zip($source, $destination = ''){
 		// Check if the php zip extension is loaded
 		if (!extension_loaded('zip')) {
-			throw new ErrorException("PHP zip extension is not loaded", 500);
+			throw new \ErrorException("PHP zip extension is not loaded", 500);
 		}
 
 		// Check if source exists
 		if(!file_exists($source)){
-			throw new ErrorException("Source path does not exists: $source", 500);
+			throw new \ErrorException("Source path does not exists: $source", 500);
 		}
 
 		// Calculate destination path if not set
@@ -548,7 +548,7 @@ class Jom
 
 		// Check if destination folder path exists
 		if(!file_exists(dirname($destination))){
-			throw new ErrorException("Destination folder path does not exists: ".dirname($destination), 500);
+			throw new \ErrorException("Destination folder path does not exists: ".dirname($destination), 500);
 		}
 
 		// Delete destination file if exists
@@ -557,14 +557,14 @@ class Jom
 		}
 		
 		// Open the zip file
-		$zip = new ZipArchive();
-		if (!$zip->open($destination, ZIPARCHIVE::CREATE)) {
-			throw new ErrorException("Zip file could not be created: $destination", 500);
+		$zip = new \ZipArchive();
+		if (!$zip->open($destination, \ZIPARCHIVE::CREATE)) {
+			throw new \ErrorException("Zip file could not be created: $destination", 500);
 		}
 
 		// Add content
 		if (is_dir($source) === true){
-			$files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($source), RecursiveIteratorIterator::SELF_FIRST);
+			$files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($source), \RecursiveIteratorIterator::SELF_FIRST);
 
 			foreach ($files as $file){
 				$file = str_replace('\\', '/', $file);
@@ -604,12 +604,12 @@ class Jom
 	public static function unzip($source, $destination = ''){
 		// Check if the php zip extension is loaded
 		if (!extension_loaded('zip')) {
-			throw new ErrorException("PHP zip extension is not loaded", 500);
+			throw new \ErrorException("PHP zip extension is not loaded", 500);
 		}
 
 		// Check if source exists
 		if(!file_exists($source)){
-			throw new ErrorException("Source path does not exists: $source", 500);
+			throw new \ErrorException("Source path does not exists: $source", 500);
 		}
 
 		// Calculate destination path if not set
@@ -619,9 +619,9 @@ class Jom
 		}
 
 		// Open the zip file
-		$zip = new ZipArchive();
+		$zip = new \ZipArchive();
 		if (!$zip->open($source)) {
-			throw new ErrorException("Zip file could not be created: $destination", 500);
+			throw new \ErrorException("Zip file could not be created: $destination", 500);
 		}
 
 		// Extract
