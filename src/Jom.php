@@ -1,5 +1,5 @@
 <?php
-namespace Jnilla;
+namespace Jnilla\Jom;
 
 defined('_JEXEC') or die();
 
@@ -14,6 +14,7 @@ use Joomla\CMS\Layout\LayoutHelper as JLayoutHelper;
 use Joomla\CMS\Filesystem\Folder as JFolder;
 use Joomla\CMS\Router\Route as JRoute;
 use Joomla\CMS\Session\Session as JSession;
+use Joomla\CMS\Form\Form as JForm;
 
 /**
  * Jom is a Joomla API facade
@@ -72,6 +73,19 @@ class Jom
 	}
 
 	/**
+	 * Retuns a global configuration value
+	 *
+	 * @param string $name
+	 *     Configuration name
+	 * 
+	 * @return mixed
+	 *     Configuration value
+	 */
+	public static function conf($name){
+		return JFactory::getConfig()->get($name);
+	}
+
+	/**
 	 * Retuns a document object
 	 *
 	 * @return JDocument
@@ -115,7 +129,7 @@ class Jom
 
 		preg_match('/^https?:/i', $url, $result);
 		if(empty($result)){
-			self::app()->redirect(self::baseUrl()."/$url");
+			self::app()->redirect(self::baseUrl()."$url");
 		}else{
 			self::app()->redirect($url);
 		}
@@ -175,7 +189,7 @@ class Jom
 	}
 
 	/**
-	 * Translates a language string into the current language.
+	 * Translates a language string into the current language and prints it to the output
 	 *
 	 * @param string $string
 	 *     The string to translate.
@@ -209,7 +223,7 @@ class Jom
 	 *	  Data to send
 	 * @return void
 	 */
-	public static function sendJsonResponse($data = null, $pretty = false){
+	public static function jres($data = null, $pretty = false){
 		header('Content-Type: application/json');
 		if($pretty){
 			echo json_encode($data, JSON_PRETTY_PRINT);
@@ -422,7 +436,7 @@ class Jom
 	}
 
 	/**
-	 * Renders and echo a Joomla layout
+	 * Renders a Joomla layout
 	 *
 	 * @param string $layoutFile   
 	 *     Dot separated path to the layout file, relative to base path
@@ -433,11 +447,11 @@ class Jom
 	 * @param mixed $options
 	 *     Optional custom options to load. Registry or array format
 	 *
-	 * @return void
-	 *     Renderes the layout to the output
+	 * @return string
+	 *     Rendered layout
 	 */
 	public static function layout($layoutFile, $displayData = null, $basePath = '', $options = null){
-		echo JLayoutHelper::render($layoutFile, $displayData, $basePath, $options);
+		return JLayoutHelper::render($layoutFile, $displayData, $basePath, $options);
 	}
 
 	/**
@@ -649,10 +663,10 @@ class Jom
 	 * Renders the form token to against CSRF attacks
 	 * 
 	 * @return void
-	 *     Renders the token field to the output
+	 *     Token field
 	 */
 	public static function formToken(){
-		echo JHtml::_('form.token');
+		return JHtml::_('form.token');
 	}
 	
 	/**
@@ -672,6 +686,169 @@ class Jom
 		}
 
 		return $isValid;
+	}
+
+	/**
+	 * Renders a form object fieldsets as tabs
+	 *
+	 * @param JForm $form
+	 *     Form object
+	 * @param boolean $excludeHiddenFields
+	 *     If true hidden fields will be excluded
+	 *
+	 * @return string
+	 *     Renders the form fieldsets as tabs
+	 */
+	public static function renderFieldsetsAsTabs($form, $excludeHiddenFields = false){
+		$fieldsets = $form->getFieldsets();
+
+		foreach ($fieldsets as $fieldset){
+			$displaydata['items'][] = [
+				'title' => Jom::translate($fieldset->label),
+				'content' => Jom::rederFieldset($form, $fieldset->name, $excludeHiddenFields),
+			];
+		}
+		return Jom::layout(
+			'stateful_tabs', 
+			$displaydata, 
+			JPATH_LIBRARIES."/lara/assets/layouts"
+		);
+	}
+
+	/**
+	 * Renders a form object fieldset
+	 *
+	 * @param JForm $form
+	 *     Form object
+	 * @param string $fieldsetName
+	 *     Fieldset name
+	 * @param boolean $excludeHiddenFields
+	 *     If true hidden fields will be excluded
+	 *
+	 * @return void
+	 *     Renders the form fieldset to the output
+	 */
+	public static function rederFieldset($form, $fieldsetName, $excludeHiddenFields = false){
+		$fields = $form->getFieldset($fieldsetName);
+		ob_start();
+		foreach ($fields as $field) {
+			if($excludeHiddenFields && ($field->getAttribute("type") === 'hidden')){
+				continue;
+			}
+			echo self::renderFieldOnce($form, $field->getAttribute("name"));
+		}
+		return ob_get_clean();
+	}
+
+	/**
+	 * Renders a form field object to the output but only once
+	 * 
+	 * Note: The function "remembers" the fielods 
+	 * to only render them once.
+	 * 
+	 * @param JForm $form
+	 *     Form object
+	 * @param string $fieldName
+	 *     Form field name
+	 *
+	 * @return string
+	 *     Renders a form field once
+	 */
+	public static function renderFieldOnce($form, $fieldName){
+		$field = $form->getField($fieldName);
+
+		// Skip if field was rendered before
+		if($field->getAttribute('isFieldRendered') === 'true'){
+			return;
+		}
+
+		// Mark field as rendered
+		$form->setFieldAttribute($fieldName, 'isFieldRendered', 'true');
+
+		// Render field
+		return $field->renderField();
+	}
+
+	/**
+	 * Renders all the hidden fields
+	 * 
+	 * @param JForm $form
+	 *     Form object
+	 *
+	 * @return string
+	 *     Renders the form hidden fields
+	 */
+	public static function renderHiddenFields($form){
+		$fields = $form->getFieldset();
+		foreach ($fields as $field) {
+			if($field->getAttribute("type") !== 'hidden'){
+				continue;
+			}
+			self::renderFieldOnce($form, $field->getAttribute("name"));
+		}
+	}
+
+	/**
+	 * Set a form field value
+	 * 
+	 * @param JForm $form
+	 *     Form object
+	 * @param string $name
+	 *     Field name
+	 * @param mixed $value
+	 *     Value to set
+	 *
+	 * @return void
+	 */
+	public static function setFieldValue($form, $name, $value){
+		$form->setValue($name, '', $value);
+	}
+
+	/**
+	 * get a form field value
+	 * 
+	 * @param JForm $form
+	 *     Form object
+	 * @param string $name
+	 *     Field name
+	 *
+	 * @return mixed
+	 *     Field value
+	 */
+	public static function getFieldValue($form, $name){
+		return $form->getValue($name);
+	}
+
+	/**
+	 * Get a form field
+	 * 
+	 * @param JForm $form
+	 *     Form object
+	 * @param string $name
+	 *     Field name
+	 *
+	 * @return JformField
+	 *     Form field 
+	 */
+	public static function getField($form, $name){
+		return $form->getField($name);
+	}
+
+	/**
+	 * Add a new option to list fields
+	 * 
+	 * @param JForm $form
+	 *     Form object
+	 * @param string $value
+	 *     new option value
+	 * @param string $text
+	 *     New option text
+	 *
+	 * @return void
+	 */
+	public static function addFieldOption($form, $name, $value, $text){
+		$field = self::getField($form, $name);
+		$field->addOption($text, ['value' => $value]);
 	}
 }
 
