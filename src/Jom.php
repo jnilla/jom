@@ -139,6 +139,63 @@ class Jom
 	}
 
 	/**
+	 * Get a file from the request
+	 *
+	 * @param string $key
+	 *	  Variable key
+	 *
+	 * @return array
+	 * 		Temporal file path. False on error.
+	 */
+	public static function getRequestFile($key){
+		// Check if the key is trying to get the value from an array
+		if(strpos($key, '[') !== false){
+			$key = explode('[', $key);
+			$key[1] = explode(']', $key[1])[0];
+			$value = self::getApplication()->input->files->get($key[0]);
+			$file =  isset($value[$key[1]]) ? $value[$key[1]] : null;
+		}else{
+			$file = self::getApplication()->input->files->get($key);
+		}
+
+		// Check if file request exist
+		if(!isset($file) || $file['name'] === ''){
+			return false;
+		}
+
+		// Collect file info
+		$safeFileName = JFile::makeSafe($file['name']);
+		$tmpFolderPath = JPATH_SITE.'/tmp/jom_uploads/'.date('Y_m_d__H_i_s').'__'.basename($file['tmp_name']);
+		$tmpFilePath = "$tmpFolderPath/$safeFileName";
+
+		// Create new file info
+		$file2 = [];
+		$file2['original_name'] = $file['name'];
+		$file2['safe_name'] = $safeFileName;
+		$file2['type'] = $file['type'];
+		$file2['size'] = $file['size'];
+		$file2['tpm_path'] = $tmpFilePath;
+
+		// Create tmp folder path
+		self::fsCreateFolder($tmpFolderPath);
+		if(!file_exists($tmpFolderPath)){
+			return false;
+		}
+
+		// Move file to tmp path
+		if (!JFile::upload($file['tmp_name'], $tmpFilePath)){
+			return false;
+		}
+
+		// Check if file exists
+		if(!file_exists($tmpFilePath)){
+			return false;
+		}
+
+		return $tmpFilePath;
+	}
+
+	/**
 	 * Does a 302 redirect to another URL.
 	 *
 	 * @param string $url 
@@ -252,15 +309,17 @@ class Jom
 	 * @return void
 	 */
 	public static function sendJsonResponse($data = null, $pretty = true){
-		// ob_end_clean();
-		header('Content-Type: application/json');
+		// Set headers
+		$app = self::getApplication();
+		$app->mimeType = 'application/json';
+		$app->setHeader('Content-Type', $app->mimeType . '; charset=' . $app->charSet);
+		$app->sendHeaders();
 
-		if($pretty){
-			echo json_encode($data, JSON_PRETTY_PRINT);
-		}else{
-			echo json_encode($data);
-		}
-		die;
+		// Send JSON
+		echo json_encode($data, ($pretty ? JSON_PRETTY_PRINT : null));
+
+		// Close app
+		$app->close();
 	}
 
 	/**
@@ -376,15 +435,20 @@ class Jom
 	 * 		Query string
 	 * @param array $bindings
 	 * 		Query string bindings
+	 * @param boolean $returnQueryOnly
+	 * 		If true retuns the prepared query without executing it
 	 *
-	 * @return array
-	 *     array with results
+	 * @return array|string
+	 *     Array with results or query string
 	 */
-	public static function dbSelect($query, $bindings = []){
+	public static function dbSelect($query, $bindings = [], $returnQueryOnly = false){
 		$db = self::getDbo();
 		
 		// Set Query
 		$query = self::prepareQueryBindings($query, $bindings);
+		if($returnQueryOnly){
+			return $query;
+		}
 		$db->setQuery($query);
 
 		// Execute and return
@@ -398,16 +462,21 @@ class Jom
 	 * 		Query string
 	 * @param array $bindings
 	 * 		Query string bindings
+	 * @param boolean $returnQueryOnly
+	 * 		If true retuns the prepared query without executing it
 	 *
-	 * @return array
-	 *     array with results
+	 * @return array|string
+	 *     One result or query string
 	 */
-	public static function dbSelectOne($query, $bindings = []){
+	public static function dbSelectOne($query, $bindings = [], $returnQueryOnly = false){
 		$db = self::getDbo();
 		
 		// Set Query
 		$query .= "\n LIMIT 1";
 		$query = self::prepareQueryBindings($query, $bindings);
+		if($returnQueryOnly){
+			return $query;
+		}
 		$db->setQuery($query);
 
 		// Execute and return
@@ -429,15 +498,21 @@ class Jom
 	 * @param callable
 	 * 		Callback with chunk rows. Return false from whithin 
 	 *      the callback function to break the loop.
+	 * @param boolean $returnQueryOnly
+	 * 		If true retuns the prepared query without executing it
 	 *
-	 * @return void
+	 * @return void|string
+	 *      Void or query string
 	 */
-	public static function dbSelectChunk($query, $bindings, $chunkSize, $callback){
+	public static function dbSelectChunk($query, $bindings, $chunkSize, $callback, $returnQueryOnly = false){
 		$offset = 0;
 		do {
 			$bindings['limit'] = $chunkSize;
 			$bindings['offset'] = $offset;
 			$query .= "\n LIMIT :limit OFFSET :offset";
+			if($returnQueryOnly){
+				return $query;
+			}
 			$rows = self::dbSelect($query, $bindings);
 			if(!$rows){
 				return;
@@ -456,15 +531,134 @@ class Jom
 	 * 		Query string
 	 * @param array $bindings
 	 * 		Query string bindings
+	 * @param boolean $returnQueryOnly
+	 * 		If true retuns the prepared query without executing it
 	 *
-	 * @return boolean
-	 *     True if sueccess
+	 * @return boolean|string
+	 *     True if sueccess or query string
 	 */
-	public static function dbQuery($query, $bindings = []){
+	public static function dbQuery($query, $bindings = [], $returnQueryOnly = false){
 		$db = self::getDBO();
-		  
+		
 		// Set Query
 		$query = self::prepareQueryBindings($query, $bindings);
+		if($returnQueryOnly){
+			return $query;
+		}
+		$db->setQuery($query);
+
+		// Execute and return
+		return $db->execute();
+	}
+
+	/**
+	 * Executes an INSERT SQL query
+	 *
+	 * @param string $tableName
+	 * 		Database table name
+	 * @param array $keyValueArray
+	 * 		Array with keys and values. 
+	 *      The keys must match the table column names.
+	 * @param boolean $isMultipleInserts
+	 * 		If true it means $keyValueArray contains an array of records to insert not just one
+	 * @param boolean $returnQueryOnly
+	 * 		If true retuns the prepared query without executing it
+	 *
+	 * @return boolean|string
+	 *     True if sueccess or query string
+	 */
+	public static function dbInsert($tableName, $keyValueArray, $isMultipleInserts = false, $returnQueryOnly = false){
+		$db = self::getDBO();
+
+		// Prepare columns
+		$columns = [];
+		foreach (($isMultipleInserts ? $keyValueArray[0] : $keyValueArray) as $key => $value) {
+			$columns[] = "`$key`";			
+		}
+		$columns = implode(",\n", $columns);
+		$columns = "($columns)";
+
+		// Prepare values
+		if($isMultipleInserts){			
+			$keys = array_keys($keyValueArray[0]);
+			$values2 = [];
+			foreach ($keyValueArray as $item) {
+				$values = [];
+				foreach ($keys as $key) {
+					$values[] = $db->quote(isset($item[$key]) ? $item[$key] : '');
+				}
+				$values = implode(",\n", $values);
+				$values2[] = "($values)";
+			}
+			$values = implode(",\n\n\n", $values2);
+		}else{
+			$values = [];
+			foreach ($keyValueArray as $key => $value) {
+				$values[] = $db->quote($value);
+			}
+			$values = implode(",\n", $values);
+			$values = "($values)";
+		}
+
+		// Prepare query
+		$query = 
+			"INSERT INTO $tableName
+			$columns
+			VALUES 
+			$values
+		;";
+
+		// Set Query
+		if($returnQueryOnly){
+			return $query;
+		}
+		$db->setQuery($query);
+
+		// Execute and return
+		return $db->execute();
+	}
+
+	/**
+	 * Executes an UPDATE SQL query
+	 *
+	 * @param string $tableName
+	 * 		Database table name
+	 * @param array $keyValueArray
+	 * 		Array with keys and values. 
+	 *      The keys must match the table column names.
+	 * @param string $clauses
+	 * 		Any other clauses to append at the end of the query
+	 * @param array $bindings
+	 * 		Query string bindings
+	 *
+	 * @return boolean|string
+	 *     True if sueccess or query string
+	 */
+	public static function dbUpdate($tableName, $keyValueArray, $clauses = '', $bindings = [], $returnQueryOnly = false){
+		$db = self::getDBO();
+
+		// Prepare the key value list
+		$keyValueList = [];
+		foreach ($keyValueArray as $key => $value) {
+			$value = $db->quote($value);
+			$keyValueList[] = "`$key` = $value";
+		}
+		$keyValueList = implode(",\n", $keyValueList);
+
+		// Prepare query
+		$clauses = self::prepareQueryBindings($clauses, $bindings, false);
+		$query = 
+			"UPDATE $tableName
+			SET 
+				$keyValueList
+			-- Clauses
+			$clauses
+		;";
+		
+		// Set Query		
+		if($returnQueryOnly){
+			return $query;
+		}
 		$db->setQuery($query);
 
 		// Execute and return
@@ -478,10 +672,13 @@ class Jom
 	 * 		Query string
 	 * @param array $bindings 
 	 * 		Query string bindings
+	 * @param boolean $appendSemicolom 
+	 * 		If true appends a semicolond at the end of the query
 	 *
-	 * @return array
+	 * @return string
+	 *      Prepared query string
 	 */
-	private static function prepareQueryBindings($query, $bindings = []){
+	private static function prepareQueryBindings($query, $bindings = [], $appendSemicolom = true){
 		$db = self::getDbo();
 		$time = microtime(true);
 		
@@ -507,7 +704,11 @@ class Jom
 			}
 		}
 
-		return "$query;";
+		if($appendSemicolom){
+			return "$query;";
+		}
+
+		return $query;
 	}
 	
 	/**
